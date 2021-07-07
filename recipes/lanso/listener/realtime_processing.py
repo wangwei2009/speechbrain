@@ -91,7 +91,7 @@ class realtime_processing(object):
         while (self._running):
             data = stream.read(self.CHUNK)
 
-            if self.CHANNELS == 6:
+            if self.CHANNELS > 1 :
 
                 samps = np.fromstring(data, dtype=np.int16)
 

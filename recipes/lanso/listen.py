@@ -41,8 +41,8 @@ torchaudio.set_audio_backend("soundfile")
 
 class Listener(realtime_processing):
     
-    def __init__(self, model, feature_type, Recording=False, label_encoder=None):
-        super(Listener, self).__init__(model, feature_type, Recording=Recording)
+    def __init__(self, model, feature_type, channels=6, Recording=False, label_encoder=None):
+        super(Listener, self).__init__(model, feature_type, channels=channels, Recording=Recording)
         # self.audio_processor = AudioProcessor()
         self.se_brain = model
         self.se_brain.modules.eval()
@@ -60,11 +60,11 @@ class Listener(realtime_processing):
         self.win_len = 400
         self.CHUNK = 960
         self.overlap = self.win_len - self.hop_len   # 320
-        self.data_buffer = np.zeros((self.CHUNK + self.overlap,)) # 1280
+        self.data_buffer = np.zeros((self.CHUNK + self.overlap,), dtype=np.float32) # 1280
 
         # self.input = np.zeros((148,40), dtype=np.float32)
         self.frame_num = 151
-        self.feat_dim = 40
+        self.feat_dim = self.se_brain.hparams.n_mels
         self.input = np.random.random((1, self.frame_num, self.feat_dim))
         self.input = np.array(self.input).astype(np.float32)
 
@@ -90,8 +90,23 @@ class Listener(realtime_processing):
 
         self.words_wanted=['小蓝小蓝', '管家管家', '物业物业', 'unknown']
 
+        wav = 'wav/xmos/noise/3/音轨-4.wav'
+        wav = 'wav/xmos/xiaolanxiaolan/2/音轨-4.wav'
+        _, self.wavdata = wavfile.read(wav)
+        self.wavdata = self.wavdata.astype(np.float32, order='C') / 32768.0
+        # print(self.wavdata.shape)
+        # print(np.max(self.wavdata))
+
+        self.count = 0
+
     def process(self, data):
         se_brain = self.se_brain
+
+        # data = self.wavdata[self.count * self.CHUNK:self.count * self.CHUNK + self.CHUNK]
+        self.count += 1
+
+        if self.count == 600:
+            self.count = 0
 
         self.data_buffer[:self.overlap] = self.data_buffer[-self.overlap:]
         self.data_buffer[-self.CHUNK:] = data
@@ -99,23 +114,61 @@ class Listener(realtime_processing):
         self.save_buffer[:(self.save_len - self.CHUNK)] = self.save_buffer[-(self.save_len - self.CHUNK):]
         self.save_buffer[-self.CHUNK:] = data
 
-        # print(self.data_buffer.dtype)
+        buffer_feature = False
+        if buffer_feature:
+            noisy_feats = se_brain.modules.compute_features(torch.from_numpy(self.data_buffer[np.newaxis, :].astype(np.float32)))
+            # print(noisy_feats.shape)
+            overalap_data = self.input[:, -1*((self.frame_num - self.new_frame_num)):, :].copy()
+            self.input[:, :(self.frame_num - self.new_frame_num), :] = overalap_data.copy()
+            # self.input[:, -1*self.new_frame_num:, :] = feat
+            # # print("feat :{}".format(feat.shape))
+            # # total_loss = 0
 
-        # return 0
-        # feat = torch.rand((1, 151, 40)).to(se_brain.device)
-        feat = np.random.random((1, self.new_frame_num, self.feat_dim))
-        noisy_feats = se_brain.modules.compute_features(torch.from_numpy(self.data_buffer[np.newaxis, :].astype(np.float32)))
-        # feat = get_feature(self.data_buffer, audio_preprocessing=self.feature_type, audio_processor=self.audio_processor)
-        self.input[:, :(self.frame_num - self.new_frame_num), :] = self.input[:, -1*((self.frame_num - self.new_frame_num)):, :]
-        self.input[:, -1*self.new_frame_num:, :] = feat
-        # print("feat :{}".format(feat.shape))
-        # total_loss = 0
-        net_input = self.input[:, np.newaxis, :, :]
-        # print("data:{}".format(net_input.shape))
+            data_tensor = torch.from_numpy(self.input)
+            data_tensor[:, -1*self.new_frame_num:, :] = noisy_feats.detach().clone()
 
-        data_tensor = torch.from_numpy(net_input[0, ...])
-        data_tensor[:, -1*self.new_frame_num:, :] = noisy_feats.detach().clone()
+        else:
+            data_tensor = se_brain.modules.compute_features(torch.from_numpy(self.save_buffer[np.newaxis, :].astype(np.float32)))
+            
+        
         data_tensor = se_brain.modules.mean_var_norm(data_tensor, torch.ones([1]).to(se_brain.device))
+
+
+        # # # print(self.data_buffer.dtype)
+
+        # # # return 0
+        # # # feat = torch.rand((1, 151, 40)).to(se_brain.device)
+        # feat = np.random.random((1, self.new_frame_num, self.feat_dim))
+        # noisy_feats = se_brain.modules.compute_features(torch.from_numpy(self.data_buffer[np.newaxis, :].astype(np.float32)))
+        # # print(noisy_feats.shape)
+        # # # feat = get_feature(self.data_buffer, audio_preprocessing=self.feature_type, audio_processor=self.audio_processor)
+        # overalap_data = self.input[:, -1*((self.frame_num - self.new_frame_num)):, :].copy()
+        # self.input[:, :(self.frame_num - self.new_frame_num), :] = overalap_data.copy()
+        # # self.input[:, -1*self.new_frame_num:, :] = feat
+        # # # print("feat :{}".format(feat.shape))
+        # # # total_loss = 0
+        # net_input = self.input[:, np.newaxis, :, :]
+        # # # print("data:{}".format(net_input.shape))
+
+        # data_tensor = torch.from_numpy(net_input[0, ...])
+        # data_tensor[:, -1*self.new_frame_num:, :] = noisy_feats.detach().clone()
+
+
+        # # noisy_feats = se_brain.modules.compute_features(torch.from_numpy(self.save_buffer[np.newaxis, :].astype(np.float32)))
+        
+        # data_tensor = se_brain.modules.mean_var_norm(data_tensor, torch.ones([1]).to(se_brain.device))
+        # feat_npy = np.load('feat.npy')
+        # data_tensor = torch.from_numpy(feat_npy)
+        # if self.count == 168:
+        #     print('save to ...')
+        #     np.save('feat_listen.npy', data_tensor.cpu().numpy())
+        #     wavfile.write('listen_165.wav', 16000, self.save_buffer.astype(np.float32))
+        #     # feat_npy = data_tensor.cpu().numpy()
+        #     # plt.figure()
+        #     # plt.pcolor(feat_npy.T)
+        #     # # librosa.display.specshow(feats[0, :])
+        #     # plt.colorbar()
+        #     # plt.savefig("feat.png")
 
         output = []
         output_0 = []
@@ -146,6 +199,7 @@ class Listener(realtime_processing):
                 #     print("prob:{}".format(torch.exp(y[self.keyword])))
 
                 y = np.exp(y.detach().cpu().numpy())
+                # print(y)
 
                 for m in range(len(self.words_wanted)-1):
                     if self.postprocessing_list[m].update(y[self.lab2ind[self.words_wanted[m]]]):
@@ -161,7 +215,8 @@ class Listener(realtime_processing):
                 #         print("{}:{}:.................keyword detected!..............................".format(self.words_wanted[y_max_index-1], self.wake_count))
 
                 prob = y[self.lab2ind[self.words_wanted[2]]]
-                # unkonwn_prob = y[3]
+                unkonwn_prob = 1 - y[self.lab2ind[self.words_wanted[3]]]
+                # print(unkonwn_prob)
 
                 # if self.postprocessing.update(prob):
                 #     self.wake_count = self.wake_count + 1
@@ -171,7 +226,7 @@ class Listener(realtime_processing):
 
         line_with = 1   # [1, self.CHUNK]
         self.audio_data[:self.buffer_len - line_with, 0] = self.audio_data[line_with:, 0]
-        self.audio_data[-line_with:, 0] = prob * np.ones((line_with,))
+        self.audio_data[-line_with:, 0] = unkonwn_prob * np.ones((line_with,))
 
         return output
 
@@ -192,7 +247,7 @@ def main(se_brain, label_encoder=None):
     # model = se_brain.modules.embedding_model
 
 
-    listener = Listener(se_brain, feature_type='FBANK', label_encoder=label_encoder)
+    listener = Listener(se_brain, feature_type='FBANK', channels=2, label_encoder=label_encoder)
 
 
     listener.start()
@@ -242,7 +297,8 @@ if __name__ == "__main__":
     lab2ind = label_encoder.lab2ind
 
 
-    se_brain.on_evaluate_start(min_key="ErrorRate")
+    # se_brain.on_evaluate_start(min_key="ErrorRate")
+    se_brain.on_evaluate_start()
     se_brain.on_stage_start(sb.Stage.TEST, epoch=None)
 
     se_brain.modules.eval()
