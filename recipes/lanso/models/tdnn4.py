@@ -146,6 +146,7 @@ class TDNN(nn.Module):
                     output_dim=512,
                     output_size=4,
                     tdnn_dim=64,
+                    att_feat=128,
                     context_size=5,
                     stride=1,
                     dilation=1,
@@ -191,7 +192,7 @@ class TDNN(nn.Module):
         self.tdnn7 = TDNN_Block(input_dim=self.tdnn_dim, output_dim=self.tdnn_dim, context_size=3, dilation=4, dropout_p=dropout_p)
         self.tdnn8 = TDNN_Block(input_dim=self.tdnn_dim, output_dim=self.tdnn_dim, context_size=3, dilation=8, dropout_p=dropout_p)
 
-        self.attention = Attention(input_size=self.tdnn_dim, output_size=output_size)
+        self.attention = Attention(input_size=self.tdnn_dim, output_size=output_size, att_feature=att_feat)
 
         # self.fc1 = nn.Linear(in_features=self.tdnn_dim, out_features=16)
         # self.fc2 = nn.Linear(in_features=976, out_features=4)
